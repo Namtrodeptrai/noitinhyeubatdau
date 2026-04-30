@@ -284,7 +284,7 @@ function initChatbot() {
       } else {
         // Gọi Gemini API
         const modelSelect = document.getElementById('chatbot-model');
-        const model = modelSelect ? modelSelect.value : 'gemini-1.5-flash';
+        const model = modelSelect ? modelSelect.value : 'gemini-2.5-flash';
         
         let systemPrompt = "Bạn là SQL Bot, một chuyên gia dạy SQL thân thiện bằng tiếng Việt. Nhiệm vụ của bạn là hướng dẫn học viên hiểu bài và sửa lỗi code. Tuyệt đối KHÔNG đưa đáp án/code mẫu ngay lập tức trừ khi học viên chủ động xin (ví dụ: 'cho code', 'đáp án là gì'). Thay vào đó, hãy phân tích lỗi hoặc đưa ra gợi ý từng bước. Hãy dùng markdown để format (dùng `code` cho tên cột/bảng, ```sql cho code block). Format câu trả lời ngắn gọn, dễ đọc.";
         
