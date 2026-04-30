@@ -629,3 +629,5 @@ body.intro-active .chatbot-container{visibility:hidden}
   .video-card{grid-template-columns:78px 1fr}
   .video-card img{width:78px}
 }
+
+.chatbot-model-select { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; border-radius: 4px; padding: 2px 4px; font-size: 0.75rem; font-family: 'Inter', sans-serif; cursor: pointer; outline: none; margin-top: 2px; } .chatbot-model-select option { background: #1e293b; color: #fff; }

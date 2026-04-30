@@ -234,6 +234,12 @@ function renderCurrentExerciseHelp(question) {
   return html;
 }
 
+// TODO: Điền Gemini API Key của bạn vào đây (Lấy tại https://aistudio.google.com/)
+// BẢO MẬT: Hãy vào Google Cloud Console -> API & Services -> Credentials
+// -> Edit API Key -> Restrict key (HTTP referrers) -> Thêm domain Vercel của bạn vào (VD: *sql-master.vercel.app/*)
+// Nếu để trống, bot sẽ dùng luật cứng mặc định.
+const GEMINI_API_KEY = 'AIzaSyCyUrIvMswPNFjuxyYrg1Q9uCXx59gyfkg';
+
 function initChatbot() {
   const toggle = document.getElementById('chatbot-toggle');
   const container = document.getElementById('chatbot-container');
@@ -256,7 +262,10 @@ function initChatbot() {
     const text = input.value.trim();
     if (!text) return;
     addUserMessage(text);
-    chatHistory.push({ role: 'user', text });
+    
+    // Lưu lịch sử (định dạng cho Gemini)
+    chatHistory.push({ role: 'user', parts: [{ text }] });
+    
     input.value = '';
     // Show typing
     const typingEl = document.createElement('div');
@@ -264,16 +273,76 @@ function initChatbot() {
     typingEl.innerHTML = `<div class="msg-avatar">🤖</div><div class="msg-bubble"><div class="typing-dots"><span></span><span></span><span></span></div></div>`;
     msgArea.appendChild(typingEl);
     msgArea.scrollTop = msgArea.scrollHeight;
+
     try {
-      let answer;
-      await new Promise(resolve => setTimeout(resolve, 350 + Math.random() * 450));
-      answer = isExerciseHelpQuestion(text) ? renderCurrentExerciseHelp(text) : findAnswer(text);
+      let answerHTML;
+
+      if (!GEMINI_API_KEY) {
+        // Fallback: Dùng luật cứng mặc định
+        await new Promise(resolve => setTimeout(resolve, 350 + Math.random() * 450));
+        answerHTML = isExerciseHelpQuestion(text) ? renderCurrentExerciseHelp(text) : findAnswer(text);
+      } else {
+        // Gọi Gemini API
+        const modelSelect = document.getElementById('chatbot-model');
+        const model = modelSelect ? modelSelect.value : 'gemini-1.5-flash';
+        
+        let systemPrompt = "Bạn là SQL Bot, một chuyên gia dạy SQL thân thiện bằng tiếng Việt. Nhiệm vụ của bạn là hướng dẫn học viên hiểu bài và sửa lỗi code. Tuyệt đối KHÔNG đưa đáp án/code mẫu ngay lập tức trừ khi học viên chủ động xin (ví dụ: 'cho code', 'đáp án là gì'). Thay vào đó, hãy phân tích lỗi hoặc đưa ra gợi ý từng bước. Hãy dùng markdown để format (dùng `code` cho tên cột/bảng, ```sql cho code block). Format câu trả lời ngắn gọn, dễ đọc.";
+        
+        const ctx = getCurrentExerciseContext();
+        if (ctx) {
+          systemPrompt += `\n\nBối cảnh bài tập hiện tại:\n- Tiêu đề: ${ctx.exercise.title}\n- Đề bài: ${ctx.exercise.desc}\n- Dialect: ${ctx.dialect}`;
+          if (ctx.expectedSQL) systemPrompt += `\n- Đáp án mong đợi (để đối chiếu, không nói cho học viên): ${ctx.expectedSQL}`;
+          if (ctx.userSQL) systemPrompt += `\n- Code học viên đang viết: ${ctx.userSQL}`;
+          if (ctx.feedbackText) systemPrompt += `\n- Lỗi hệ thống báo: ${ctx.feedbackText}`;
+        }
+
+        const payload = {
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: chatHistory,
+          generationConfig: { temperature: 0.3 }
+        };
+
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error?.message || 'Lỗi kết nối Gemini API');
+        }
+
+        const data = await res.json();
+        const geminiText = data.candidates[0].content.parts[0].text;
+        
+        // Convert Markdown to HTML (đơn giản)
+        answerHTML = geminiText
+          .replace(/```sql\n([\s\S]*?)```/g, '<br><code>$1</code><br>')
+          .replace(/```([\s\S]*?)```/g, '<br><code>$1</code><br>')
+          .replace(/`([^`]+)`/g, '<code>$1</code>')
+          .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+          .replace(/\n/g, '<br>');
+          
+        // Lưu lịch sử bot
+        chatHistory.push({ role: 'model', parts: [{ text: geminiText }] });
+      }
+
       typingEl.remove();
-      addBotMessage(answer);
-      chatHistory.push({ role: 'assistant', text: answer.replace(/<[^>]*>/g, '') });
+      addBotMessage(answerHTML);
+      
+      // Nếu là fallback (không có API Key) thì lưu format cũ cho fallback
+      if (!GEMINI_API_KEY) {
+        chatHistory.pop(); // Remove user format for Gemini
+        chatHistory.push({ role: 'user', text });
+        chatHistory.push({ role: 'model', text: answerHTML.replace(/<[^>]*>/g, '') });
+      }
+      
     } catch (error) {
       typingEl.remove();
-      addBotMessage(`<strong>Bot gặp lỗi khi phân tích câu hỏi.</strong><br>${formatPlainText(error.message)}<br><br>Bạn thử hỏi ngắn hơn, ví dụ: "gợi ý bài này" hoặc "cho code bài này".`);
+      console.error(error);
+      addBotMessage(`<strong>Bot gặp lỗi.</strong><br>${formatPlainText(error.message)}<br><br>Vui lòng kiểm tra lại API Key hoặc thử lại sau.`);
+      chatHistory.pop(); // Remove failed user message
     }
   }
 
