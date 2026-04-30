@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: sql-master
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /opt/render/project/src/data
+    disk:
+      name: sql-master-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
