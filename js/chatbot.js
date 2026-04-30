@@ -276,16 +276,15 @@ function initChatbot() {
 
     try {
       let answerHTML;
+      const modelSelect = document.getElementById('chatbot-model');
+      const model = modelSelect ? modelSelect.value : 'gemini-2.0-flash';
 
-      if (!GEMINI_API_KEY) {
-        // Fallback: Dùng luật cứng mặc định
+      if (!GEMINI_API_KEY && model !== 'gpt-4o-free') {
+        // Fallback: Dùng luật cứng mặc định (nếu chọn Gemini nhưng không có key)
         await new Promise(resolve => setTimeout(resolve, 350 + Math.random() * 450));
         answerHTML = isExerciseHelpQuestion(text) ? renderCurrentExerciseHelp(text) : findAnswer(text);
       } else {
-        // Gọi Gemini API
-        const modelSelect = document.getElementById('chatbot-model');
-        const model = modelSelect ? modelSelect.value : 'gemini-2.0-flash';
-        
+        // AI Logic (Gemini API hoặc GPT-4o Proxy)
         let systemPrompt = "Bạn là SQL Bot, một chuyên gia dạy SQL thân thiện bằng tiếng Việt. Nhiệm vụ của bạn là hướng dẫn học viên hiểu bài và sửa lỗi code. Tuyệt đối KHÔNG đưa đáp án/code mẫu ngay lập tức trừ khi học viên chủ động xin (ví dụ: 'cho code', 'đáp án là gì'). Thay vào đó, hãy phân tích lỗi hoặc đưa ra gợi ý từng bước. Hãy dùng markdown để format (dùng `code` cho tên cột/bảng, ```sql cho code block). Format câu trả lời ngắn gọn, dễ đọc.";
         
         const ctx = getCurrentExerciseContext();
@@ -296,28 +295,56 @@ function initChatbot() {
           if (ctx.feedbackText) systemPrompt += `\n- Lỗi hệ thống báo: ${ctx.feedbackText}`;
         }
 
-        const payload = {
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          contents: chatHistory,
-          generationConfig: { temperature: 0.3 }
-        };
+        let aiResponseText = "";
 
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
+        if (model === 'gpt-4o-free') {
+          // Gọi GPT-4o qua Pollinations (Cộng đồng)
+          const openAiMessages = [
+            { role: 'system', content: systemPrompt },
+            ...chatHistory.map(msg => ({
+              role: msg.role === 'model' ? 'assistant' : 'user',
+              content: msg.parts[0].text
+            }))
+          ];
 
-        if (!res.ok) {
-          const errData = await res.json();
-          throw new Error(errData.error?.message || 'Lỗi kết nối Gemini API');
+          const res = await fetch('https://text.pollinations.ai/openai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: openAiMessages,
+              model: 'gpt-4o',
+              temperature: 0.3
+            })
+          });
+
+          if (!res.ok) throw new Error('Lỗi kết nối GPT-4o (Cộng đồng) - Máy chủ quá tải.');
+          const data = await res.json();
+          aiResponseText = data.choices[0].message.content;
+        } else {
+          // Gọi Gemini API (Chính chủ)
+          const payload = {
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            contents: chatHistory,
+            generationConfig: { temperature: 0.3 }
+          };
+
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (!res.ok) {
+            const errData = await res.json();
+            throw new Error(errData.error?.message || 'Lỗi kết nối Gemini API');
+          }
+
+          const data = await res.json();
+          aiResponseText = data.candidates[0].content.parts[0].text;
         }
 
-        const data = await res.json();
-        const geminiText = data.candidates[0].content.parts[0].text;
-        
         // Convert Markdown to HTML (đơn giản)
-        answerHTML = geminiText
+        answerHTML = aiResponseText
           .replace(/```sql\n([\s\S]*?)```/g, '<br><code>$1</code><br>')
           .replace(/```([\s\S]*?)```/g, '<br><code>$1</code><br>')
           .replace(/`([^`]+)`/g, '<code>$1</code>')
@@ -325,7 +352,7 @@ function initChatbot() {
           .replace(/\n/g, '<br>');
           
         // Lưu lịch sử bot
-        chatHistory.push({ role: 'model', parts: [{ text: geminiText }] });
+        chatHistory.push({ role: 'model', parts: [{ text: aiResponseText }] });
       }
 
       typingEl.remove();
