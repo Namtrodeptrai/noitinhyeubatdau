@@ -131,6 +131,11 @@ function isExerciseHelpQuestion(question) {
   return /\b(bai tap|bai nay|giai bai|goi y|hint|loi giai|dap an|code|lam sao|lam bai|bi sai|sai o dau|kho qua|chua dung)\b/.test(q);
 }
 
+function isUserDataHelpQuestion(question) {
+  const q = normalizeText(question);
+  return /\b(data|du lieu|workspace|upload|schema|bang nay|file nay|csv|json|sql file|query nay|sep giao|mission|phan tich|bao cao|dashboard|metric|soi loi|loi import|import loi)\b/.test(q);
+}
+
 function wantsExerciseSolution(question) {
   const q = normalizeText(question);
   return /\b(code|loi giai|dap an|viet sql|cho cau lenh|cho minh cau lenh|lam mau|giai luon)\b/.test(q);
@@ -139,6 +144,118 @@ function wantsExerciseSolution(question) {
 function wantsExerciseDebug(question) {
   const q = normalizeText(question);
   return /\b(sai|loi|khong dung|chua dung|debug|fix|sua)\b/.test(q);
+}
+
+function wantsUserDataMission(question) {
+  const q = normalizeText(question);
+  return /\b(sep giao|mission|bai kho|bai phan tich|de bai|task|yeu cau|lam gi voi data|phan tich gi)\b/.test(q);
+}
+
+function wantsUserDataQuery(question) {
+  const q = normalizeText(question);
+  return /\b(code|query|sql|viet cau|cho cau lenh|mau|goi y cau lenh|bao cao)\b/.test(q);
+}
+
+function getCurrentUserDataContext() {
+  if (window.SQLDataLab?.getContext) return window.SQLDataLab.getContext();
+  const summary = typeof getUserDataSummary === 'function' ? getUserDataSummary() : { tables: [] };
+  return {
+    active: document.getElementById('lesson-content')?.classList.contains('data-lab-mode') || false,
+    dialect: typeof getSelectedDialect === 'function' ? getSelectedDialect() : 'sqlite',
+    tables: summary.tables || [],
+    missions: [],
+    currentSQL: document.getElementById('user-sql-input')?.value?.trim() || '',
+    outputText: document.getElementById('user-sql-output')?.textContent?.trim() || '',
+    statusText: document.getElementById('user-data-status')?.textContent?.trim() || ''
+  };
+}
+
+function formatUserDataSchemaForBot(ctx) {
+  if (!ctx.tables?.length) return 'Chưa có bảng nào.';
+  return ctx.tables.map(table => {
+    const columns = (table.columns || [])
+      .map(column => `${column.name} ${column.type || ''}`.trim())
+      .join(', ');
+    return `- ${table.name} (${table.rows} dòng): ${columns}`;
+  }).join('\n');
+}
+
+function getFirstUserDataMission(ctx) {
+  return ctx.missions?.[0] || null;
+}
+
+function buildGenericUserDataQuery(ctx) {
+  const table = ctx.tables?.[0];
+  if (!table) return '';
+  const metric = (table.columns || []).find(column => /^(INTEGER|REAL|NUMERIC|DECIMAL|FLOAT|DOUBLE)$/i.test(column.type || ''));
+  const dimension = (table.columns || []).find(column => column !== metric) || table.columns?.[0];
+  const q = name => `"${String(name).replace(/"/g, '""')}"`;
+
+  if (metric && dimension) {
+    return `SELECT
+  ${q(dimension.name)} AS group_name,
+  COUNT(*) AS record_count,
+  SUM(${q(metric.name)}) AS total_value,
+  AVG(${q(metric.name)}) AS avg_value
+FROM ${q(table.name)}
+GROUP BY ${q(dimension.name)}
+ORDER BY total_value DESC
+LIMIT 10;`;
+  }
+
+  return `SELECT *
+FROM ${q(table.name)}
+LIMIT 20;`;
+}
+
+function renderCurrentUserDataHelp(question) {
+  const ctx = getCurrentUserDataContext();
+  if (!ctx.active && !ctx.tables?.length) {
+    return `<strong>Chưa ở Data Lab hoặc chưa có data upload.</strong><br>
+    Bạn mở <strong>Data Lab</strong>, upload CSV/JSON/SQL, rồi hỏi: "phân tích data này", "sếp giao việc gì", "soi lỗi query này", hoặc "cho query báo cáo".`;
+  }
+
+  if (!ctx.tables?.length) {
+    const importNote = ctx.statusText ? `<br><br><strong>Trạng thái import:</strong> ${escapeHTML(ctx.statusText)}` : '';
+    return `<strong>Data Lab chưa có bảng để phân tích.</strong><br>
+    Nếu upload SQL bị lỗi, thường là file chỉ có metadata/procedure/view hoặc dialect chưa khớp. Hãy chọn đúng dialect trước khi upload, hoặc dùng CSV/JSON nếu chỉ cần phân tích dữ liệu raw.${importNote}`;
+  }
+
+  const schema = formatUserDataSchemaForBot(ctx);
+  const mission = getFirstUserDataMission(ctx);
+  const wantsDebug = wantsExerciseDebug(question);
+  const wantsMission = wantsUserDataMission(question);
+  const wantsQuery = wantsUserDataQuery(question);
+  const sql = mission?.sql || buildGenericUserDataQuery(ctx);
+
+  let html = `<strong>Mình đang đọc Data Lab của bạn.</strong><br>
+  <strong>Dialect:</strong> ${escapeHTML(ctx.dialect)}<br>
+  <strong>Schema:</strong><br><code>${escapeHTML(schema)}</code>`;
+
+  if (ctx.statusText) {
+    html += `<br><br><strong>Import status:</strong> ${escapeHTML(ctx.statusText)}`;
+  }
+
+  if (wantsDebug) {
+    html += `<br><br><strong>Soi lỗi hiện tại:</strong>`;
+    if (ctx.currentSQL) html += `<br>Query đang viết:<br><code>${escapeHTML(ctx.currentSQL)}</code>`;
+    if (ctx.outputText) html += `<br><br>Output/lỗi đang thấy:<br><code>${escapeHTML(ctx.outputText.slice(0, 900))}</code>`;
+    html += `<br><br>Checklist sửa: đúng tên bảng/cột trong schema, quote tên có dấu/có khoảng trắng bằng dấu nháy kép, chọn đúng dialect, và nếu query aggregate thì cột không aggregate phải nằm trong <code>GROUP BY</code>.`;
+  }
+
+  if (wantsMission || (!wantsQuery && !wantsDebug)) {
+    html += mission
+      ? `<br><br><strong>Gợi ý kiểu sếp giao:</strong><br>${escapeHTML(mission.title)}<br>${escapeHTML(mission.deliverable)}`
+      : `<br><br><strong>Gợi ý kiểu sếp giao:</strong><br>Hãy bắt đầu bằng audit chất lượng data: đếm dòng, tìm cột thiếu, tìm key trùng, rồi mới làm báo cáo top/trend.`;
+  }
+
+  if (wantsQuery || wantsMission) {
+    html += sql
+      ? `<br><br><strong>SQL starter:</strong><br><code>${escapeHTML(sql)}</code><br><br>Bạn có thể dán vào editor Data Lab, chạy thử, rồi hỏi "soi lỗi query này" nếu output chưa đúng.`
+      : `<br><br>Chưa đủ schema để tự tạo SQL starter.`;
+  }
+
+  return html;
 }
 
 function getCurrentExerciseContext() {
@@ -251,7 +368,7 @@ function initChatbot() {
   let chatHistory = [];
 
   // Welcome message
-  addBotMessage('Xin chào! 👋 Mình là <strong>SQL Bot</strong>. Mình có thể giải thích SQL, gợi ý bài tập đang mở, soi lỗi câu SQL của bạn và đưa code mẫu khi bạn hỏi "cho code bài này".');
+  addBotMessage('Xin chào! 👋 Mình là <strong>SQL Bot</strong>. Mình có thể giải thích SQL, gợi ý bài tập đang mở, hỗ trợ Data Lab/user data workspace, soi lỗi query và đưa code mẫu khi bạn hỏi rõ.');
 
   toggle.addEventListener('click', () => {
     container.classList.toggle('open');
@@ -282,10 +399,15 @@ function initChatbot() {
       if (!GEMINI_API_KEY && model !== 'gpt-4o-free') {
         // Fallback: Dùng luật cứng mặc định (nếu chọn Gemini nhưng không có key)
         await new Promise(resolve => setTimeout(resolve, 350 + Math.random() * 450));
-        answerHTML = isExerciseHelpQuestion(text) ? renderCurrentExerciseHelp(text) : findAnswer(text);
+        const dataCtx = getCurrentUserDataContext();
+        answerHTML = isUserDataHelpQuestion(text) && (dataCtx.active || dataCtx.tables?.length)
+          ? renderCurrentUserDataHelp(text)
+          : isExerciseHelpQuestion(text)
+          ? renderCurrentExerciseHelp(text)
+          : findAnswer(text);
       } else {
         // AI Logic (Gemini API hoặc GPT-4o Proxy)
-        let systemPrompt = "Bạn là SQL Bot, một chuyên gia dạy SQL thân thiện bằng tiếng Việt. Nhiệm vụ của bạn là hướng dẫn học viên hiểu bài và sửa lỗi code. Tuyệt đối KHÔNG đưa đáp án/code mẫu ngay lập tức trừ khi học viên chủ động xin (ví dụ: 'cho code', 'đáp án là gì'). Thay vào đó, hãy phân tích lỗi hoặc đưa ra gợi ý từng bước. Hãy dùng markdown để format (dùng `code` cho tên cột/bảng, ```sql cho code block). Format câu trả lời ngắn gọn, dễ đọc.";
+        let systemPrompt = "Bạn là SQL Bot, một chuyên gia dạy SQL thân thiện bằng tiếng Việt. Nhiệm vụ của bạn là hướng dẫn học viên hiểu bài, sửa lỗi code, và hỗ trợ phân tích dữ liệu trong Data Lab/User Data Workspace. Tuyệt đối KHÔNG đưa đáp án/code mẫu ngay lập tức trừ khi học viên chủ động xin (ví dụ: 'cho code', 'đáp án là gì', 'cho query'). Thay vào đó, hãy phân tích lỗi hoặc đưa ra gợi ý từng bước. Hãy dùng markdown để format (dùng `code` cho tên cột/bảng, ```sql cho code block). Format câu trả lời ngắn gọn, dễ đọc.";
         
         const ctx = getCurrentExerciseContext();
         if (ctx) {
@@ -293,6 +415,20 @@ function initChatbot() {
           if (ctx.expectedSQL) systemPrompt += `\n- Đáp án mong đợi (để đối chiếu, không nói cho học viên): ${ctx.expectedSQL}`;
           if (ctx.userSQL) systemPrompt += `\n- Code học viên đang viết: ${ctx.userSQL}`;
           if (ctx.feedbackText) systemPrompt += `\n- Lỗi hệ thống báo: ${ctx.feedbackText}`;
+        }
+
+        const dataCtx = getCurrentUserDataContext();
+        if (dataCtx.active || dataCtx.tables?.length) {
+          systemPrompt += `\n\nBối cảnh Data Lab/User Data Workspace:
+- Dialect đang chọn: ${dataCtx.dialect}
+- Schema upload:
+${formatUserDataSchemaForBot(dataCtx)}
+- Query hiện tại: ${dataCtx.currentSQL || '(chưa nhập query)'}
+- Output hoặc lỗi hiện tại: ${(dataCtx.outputText || dataCtx.statusText || '(chưa có output)').slice(0, 1600)}`;
+          if (dataCtx.missions?.length) {
+            systemPrompt += `\n- Mission sếp giao hiện tại:\n${dataCtx.missions.slice(0, 3).map(mission => `  * ${mission.title}: ${mission.deliverable}\n    SQL starter: ${mission.sql}`).join('\n')}`;
+          }
+          systemPrompt += `\nKhi trả lời về Data Lab, hãy dùng đúng tên bảng/cột trong schema. Nếu tên bảng/cột có dấu, khoảng trắng hoặc ký tự lạ, hãy quote identifier. Nếu học viên hỏi "sếp giao gì" thì đề xuất 2-3 phân tích thực tế. Nếu hỏi "soi lỗi" thì dựa vào query/output hiện tại.`;
         }
 
         let aiResponseText = "";
@@ -368,7 +504,13 @@ function initChatbot() {
     } catch (error) {
       typingEl.remove();
       console.error(error);
-      addBotMessage(`<strong>Bot gặp lỗi.</strong><br>${formatPlainText(error.message)}<br><br>Vui lòng kiểm tra lại API Key hoặc thử lại sau.`);
+      if (isUserDataHelpQuestion(text)) {
+        addBotMessage(`${renderCurrentUserDataHelp(text)}<br><br><small>AI online đang lỗi nên mình dùng trợ lý local theo schema hiện tại.</small>`);
+      } else if (isExerciseHelpQuestion(text)) {
+        addBotMessage(`${renderCurrentExerciseHelp(text)}<br><br><small>AI online đang lỗi nên mình dùng trợ lý local theo bài hiện tại.</small>`);
+      } else {
+        addBotMessage(`<strong>Bot gặp lỗi.</strong><br>${formatPlainText(error.message)}<br><br>Vui lòng kiểm tra lại API Key hoặc thử lại sau.`);
+      }
       chatHistory.pop(); // Remove failed user message
     }
   }

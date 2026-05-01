@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp \"d:/Web project/node_modules/sql.js/sql-wasm.js\" \"d:/Web project/js/sql-wasm.js\")",
+      "Bash(cp \"d:/Web project/node_modules/sql.js/sql-wasm.wasm\" \"d:/Web project/js/sql-wasm.wasm\")"
+    ]
+  }
+}

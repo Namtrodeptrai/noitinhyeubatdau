@@ -1023,6 +1023,7 @@ function submitExerciseLegacy(id) {
       solved.push(id);
       localStorage.setItem('sql_solved', JSON.stringify(solved));
       if (window.SQLAuth) window.SQLAuth.saveProgress();
+      if (typeof logDailyActivity === 'function') logDailyActivity('exercise');
     }
     setActiveExerciseAfterSolve(lessonId, solved, id);
     const chapterStats = getChapterExerciseStats(lessonId, solved);
@@ -1103,6 +1104,7 @@ function submitExercise(id) {
       solved.push(id);
       localStorage.setItem('sql_solved', JSON.stringify(solved));
       if (window.SQLAuth) window.SQLAuth.saveProgress();
+      if (typeof logDailyActivity === 'function') logDailyActivity('exercise');
     }
     setActiveExerciseAfterSolve(lessonId, solved, id);
     const chapterStats = getChapterExerciseStats(lessonId, solved);
