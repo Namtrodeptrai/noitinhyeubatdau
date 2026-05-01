@@ -463,7 +463,6 @@ function getWeeklyChartData() {
     const stats = getDashboardStats();
     const solved = JSON.parse(localStorage.getItem('sql_solved') || '[]');
     const nextLessonTitle = stats.nextLesson ? stats.nextLesson.title : 'Đã hoàn thành';
-    const nextExerciseTitle = stats.nextExercise ? stats.nextExercise.exercise.title : 'Đã hoàn thành';
     const streak = getCurrentStreak();
     const weekData = getWeeklyChartData();
     const maxVal = Math.max(1, ...weekData.flatMap(d => [d.lessons, d.exercises]));
@@ -482,149 +481,129 @@ function getWeeklyChartData() {
     const badges = BADGE_DEFS.map(b => ({ ...b, earned: b.check(badgeStats) }));
     const earnedCount = badges.filter(b => b.earned).length;
     document.getElementById('lesson-content').innerHTML = `
-      <section class="roadmap-home">
-        <div class="roadmap-hero">
-          <div>
-            <span class="roadmap-kicker">SQL Roadmap</span>
-            <h2>Lộ trình học SQL từ cơ bản đến nâng cao</h2>
-            <p>Đi theo từng chặng: học khái niệm, thực hành truy vấn, luyện bài tập, rồi tiến tới tối ưu và thiết kế cơ sở dữ liệu.</p>
-            <div class="roadmap-actions">
+      <section class="home-page">
+
+        <div class="home-hero">
+          <div class="home-hero-top">
+            <span class="home-label">SQL Roadmap &middot; 10 chặng học</span>
+            <div class="home-hero-btns">
               <button class="btn-start" id="btn-continue-learning">
                 Tiếp tục học
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
               </button>
-              <button class="roadmap-secondary-btn" id="btn-start-learning">Bắt đầu từ đầu</button>
-              <button class="roadmap-secondary-btn" id="btn-open-data-lab-home">Upload data riêng</button>
+              <button class="home-btn-ghost" id="btn-start-learning">Bắt đầu từ đầu</button>
+              <button class="home-btn-ghost" id="btn-open-data-lab-home">Data Lab</button>
             </div>
           </div>
-          <div class="roadmap-summary">
-            <div><strong>${stats.completedLessons}/${stats.totalLessons}</strong><span>Bài giảng</span></div>
-            <div><strong>${stats.solvedExercises}/${stats.totalExercises}</strong><span>Bài tập</span></div>
-            <div><strong>${stats.lessonPercent}%</strong><span>Tiến độ học</span></div>
-            <div><strong>${nextLessonTitle}</strong><span>Bài học tiếp theo</span></div>
+          <h2>Học SQL chắc tay.</h2>
+          <p class="home-hero-desc">Đọc &mdash; viết &mdash; chạy thử. Đi theo lộ trình từng bước để rèn tư duy dữ liệu, không phụ thuộc vào Google hay AI mãi.</p>
+          <div class="home-stats-inline">
+            <div class="hsi-item">
+              <strong>${stats.completedLessons}<em>/${stats.totalLessons}</em></strong>
+              <span>Bài giảng</span>
+            </div>
+            <div class="hsi-sep"></div>
+            <div class="hsi-item">
+              <strong>${stats.solvedExercises}<em>/${stats.totalExercises}</em></strong>
+              <span>Bài tập</span>
+            </div>
+            <div class="hsi-sep"></div>
+            <div class="hsi-item">
+              <strong>${streak}</strong>
+              <span>Ngày streak</span>
+            </div>
+            <div class="hsi-sep"></div>
+            <div class="hsi-item">
+              <strong>${stats.lessonPercent}<em>%</em></strong>
+              <span>Tiến độ</span>
+            </div>
           </div>
+          <div class="home-hero-bar"><div style="width:${stats.lessonPercent}%"></div></div>
+          ${stats.nextLesson
+            ? `<p class="home-next-lesson">&#9654; Bài tiếp theo &mdash; <span>${nextLessonTitle}</span></p>`
+            : `<p class="home-next-lesson home-next-done">&#10003; Đã hoàn thành toàn bộ lộ trình. Xuất sắc!</p>`}
         </div>
 
-        <div class="home-stats-row">
-          <div class="streak-card">
-            <div class="streak-fire">🔥</div>
-            <div class="streak-info">
-              <div class="streak-count">${streak}</div>
-              <div class="streak-label">Ngày liên tiếp</div>
-            </div>
-          </div>
-          <div class="weekly-chart-card">
-            <div class="weekly-chart-head">
+        <div class="home-activity">
+          <div class="home-activity-chart">
+            <div class="home-chart-head">
               <span>Hoạt động 7 ngày qua</span>
-              <div class="weekly-legend">
-                <span class="wc-legend-l">Bài học</span>
-                <span class="wc-legend-e">Bài tập</span>
+              <div class="home-chart-legend">
+                <span class="hcl-l">Bài học</span>
+                <span class="hcl-e">Bài tập</span>
               </div>
             </div>
-            <div class="weekly-chart">
-              ${weekData.map(d => `<div class="wc-col">
-                <div class="wc-bars">
-                  <div class="wc-bar wc-l" style="height:${Math.round(d.lessons / maxVal * BAR_H)}px" title="${d.lessons} bài học"></div>
-                  <div class="wc-bar wc-e" style="height:${Math.round(d.exercises / maxVal * BAR_H)}px" title="${d.exercises} bài tập"></div>
+            <div class="home-chart-bars">
+              ${weekData.map(d => `<div class="hcb-col">
+                <div class="hcb-bars">
+                  <div class="hcb-l" style="height:${Math.round(d.lessons / maxVal * BAR_H)}px" title="${d.lessons} bài học"></div>
+                  <div class="hcb-e" style="height:${Math.round(d.exercises / maxVal * BAR_H)}px" title="${d.exercises} bài tập"></div>
                 </div>
-                <div class="wc-day${d.today ? ' today' : ''}">${d.label}</div>
+                <div class="hcb-day${d.today ? ' today' : ''}">${d.label}</div>
               </div>`).join('')}
             </div>
           </div>
-        </div>
-        <div class="home-badges">
-          <div class="home-badges-head">
-            <span>Thành tích</span>
-            <span class="home-badges-count">${earnedCount}/${badges.length}</span>
+          <div class="home-streak-box">
+            <div class="home-streak-fire">🔥</div>
+            <div class="home-streak-num">${streak}</div>
+            <div class="home-streak-unit">Ngày liên tiếp</div>
           </div>
-          <div class="badges-grid">
-            ${badges.map(b => `<div class="badge-item${b.earned ? ' earned' : ''}" title="${b.desc}${b.earned ? '' : ' — chưa mở khóa'}">
-              <span class="badge-icon">${b.icon}</span>
-              <span class="badge-label">${b.label}</span>
+        </div>
+
+        <div class="home-achievements">
+          <div class="home-section-head">
+            <span class="home-section-title">Thành tích</span>
+            <span class="home-section-count">${earnedCount}/${badges.length}</span>
+          </div>
+          <div class="home-badges-row">
+            ${badges.map(b => `<div class="home-badge${b.earned ? ' earned' : ''}" title="${b.desc}${b.earned ? '' : ' — chưa mở khóa'}">
+              <span class="hbadge-icon">${b.icon}</span>
+              <span class="hbadge-label">${b.label}</span>
             </div>`).join('')}
           </div>
         </div>
 
-        <section class="roadmap-dashboard" aria-label="Dashboard lộ trình">
-          <article class="roadmap-dashboard-item">
-            <span class="roadmap-dashboard-dot">1</span>
-            <div class="roadmap-dashboard-card">
-              <div class="roadmap-dashboard-head"><span>📚</span><strong>Bài giảng</strong></div>
-              <div class="dashboard-big-number">${stats.completedLessons}/${stats.totalLessons}</div>
-              <div class="dashboard-progress"><div style="width:${stats.lessonPercent}%"></div></div>
-              <p>${stats.lessonPercent}% hoàn thành, bài tiếp theo: ${nextLessonTitle}.</p>
-            </div>
-          </article>
-          <article class="roadmap-dashboard-item">
-            <span class="roadmap-dashboard-dot">2</span>
-            <div class="roadmap-dashboard-card">
-              <div class="roadmap-dashboard-head"><span>🏆</span><strong>Bài tập</strong></div>
-              <div class="dashboard-big-number">${stats.solvedExercises}/${stats.totalExercises}</div>
-              <div class="dashboard-progress"><div style="width:${stats.exercisePercent}%"></div></div>
-              <p>${stats.exercisePercent}% hoàn thành, bài kế tiếp: ${nextExerciseTitle}.</p>
-            </div>
-          </article>
-          <article class="roadmap-dashboard-item">
-            <span class="roadmap-dashboard-dot">3</span>
-            <div class="roadmap-dashboard-card">
-              <div class="roadmap-dashboard-head"><span>💻</span><strong>Practice Workspace</strong></div>
-              <div class="roadmap-dashboard-flow">Đọc đề <span></span> Viết SQL <span></span> Chạy thử <span></span> Nộp bài</div>
-              <p>Workspace tách đề bài, editor và output để luyện tập giống môi trường thi SQL.</p>
-            </div>
-          </article>
-          <article class="roadmap-dashboard-item">
-            <span class="roadmap-dashboard-dot">4</span>
-            <div class="roadmap-dashboard-card">
-              <div class="roadmap-dashboard-head"><span>🤖</span><strong>SQL Bot</strong></div>
-              <div class="roadmap-dashboard-flow">Gợi ý <span></span> Sửa lỗi <span></span> Code mẫu</div>
-              <p>Hỏi bot khi bí bài: bot có thể gợi ý hướng làm, giải thích lỗi và đưa mẫu SQL.</p>
-            </div>
-          </article>
-        </section>
-
-        <section class="roadmap-board">
-          <div class="roadmap-board-head">
+        <div class="home-chapters">
+          <div class="home-chapters-head">
             <div>
-              <span class="roadmap-kicker">10 chặng học</span>
+              <span class="home-label">10 chặng học</span>
               <h3>Sơ đồ lộ trình SQL</h3>
-              <p>Bấm vào một chặng để mở bài đầu tiên của chương đó. Hoàn thành theo thứ tự từ trên xuống để không bị hổng nền tảng.</p>
+              <p>Bấm vào chặng để mở bài đầu tiên. Học theo thứ tự để không bị hổng nền tảng.</p>
             </div>
-            <button class="btn-start" id="btn-roadmap-next">
+            <button class="btn-start home-chapters-btn" id="btn-roadmap-next">
               Bài tiếp theo
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             </button>
           </div>
-          <div class="roadmap-path">
-          ${SQL_CHAPTERS.map(ch => {
-            const chapterCompleted = ch.lessons.filter(lesson => completed.includes(lesson.id)).length;
-            const chapterPercent = ch.lessons.length ? Math.round((chapterCompleted / ch.lessons.length) * 100) : 0;
-            const exerciseIds = ch.lessons.flatMap(lesson => (EXERCISES[lesson.id] || []).map(ex => ex.id));
-            const exerciseDone = exerciseIds.filter(id => solved.includes(id)).length;
-            const meta = getRoadmapMeta(ch.id);
-            return `<button class="roadmap-step ${ch.num % 2 === 0 ? 'right' : 'left'} ${chapterPercent === 100 ? 'done' : ''}" type="button" data-start-ch="${ch.lessons[0].id}">
-              <span class="roadmap-step-dot">${ch.num}</span>
-              <article class="roadmap-step-card">
-                <div class="roadmap-step-head">
-                  <span class="roadmap-step-icon">${ch.icon}</span>
-                  <div>
-                    <span>${meta.stage}</span>
+          <div class="home-chapters-grid">
+            ${SQL_CHAPTERS.map(ch => {
+              const chapterCompleted = ch.lessons.filter(lesson => completed.includes(lesson.id)).length;
+              const chapterPercent = ch.lessons.length ? Math.round((chapterCompleted / ch.lessons.length) * 100) : 0;
+              const exerciseIds = ch.lessons.flatMap(lesson => (EXERCISES[lesson.id] || []).map(ex => ex.id));
+              const exerciseDone = exerciseIds.filter(id => solved.includes(id)).length;
+              const meta = getRoadmapMeta(ch.id);
+              return `<button class="home-chapter-card${chapterPercent === 100 ? ' done' : ''}" type="button" data-start-ch="${ch.lessons[0].id}">
+                <div class="hcc-head">
+                  <span class="hcc-num">${ch.num}</span>
+                  <span class="hcc-icon">${ch.icon}</span>
+                  <div class="hcc-title">
+                    <em>${meta.stage}</em>
                     <h4>${ch.title}</h4>
                   </div>
                 </div>
-                <p>${meta.goal}</p>
-                <div class="roadmap-lesson-list">
+                <p class="hcc-desc">${meta.goal}</p>
+                <div class="hcc-lessons">
                   ${ch.lessons.map(lesson => `<span class="${completed.includes(lesson.id) ? 'done' : ''}">${lesson.title}</span>`).join('')}
                 </div>
-                <div class="roadmap-step-progress">
-                  <div><span style="width:${chapterPercent}%"></span></div>
-                  <strong>${chapterCompleted}/${ch.lessons.length} bài học</strong>
-                  <em>${exerciseDone}/${exerciseIds.length} bài tập</em>
+                <div class="hcc-footer">
+                  <div class="hcc-bar"><div style="width:${chapterPercent}%"></div></div>
+                  <span class="hcc-count">${chapterCompleted}/${ch.lessons.length} bài &middot; ${exerciseDone}/${exerciseIds.length} bt</span>
                 </div>
-              </article>
-            </button>`;
-          }).join('')}
+              </button>`;
+            }).join('')}
           </div>
-        </section>
+        </div>
+
       </section>`;
     document.getElementById('btn-continue-learning')?.addEventListener('click', () => loadLesson(stats.nextLesson?.id || 'what-is-sql'));
     document.getElementById('btn-roadmap-next')?.addEventListener('click', () => loadLesson(stats.nextLesson?.id || 'what-is-sql'));
