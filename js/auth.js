@@ -6,6 +6,7 @@
   const ACTIVE_KEY = 'sql_auth_active';
   const GUEST_COMPLETED_KEY = 'sql_guest_completed';
   const GUEST_SOLVED_KEY = 'sql_guest_solved';
+  const SERVER_HINT_KEY = 'sql_server_hint';
   const PROGRESS_KEYS = {
     completed: 'sql_completed',
     solved: 'sql_solved'
@@ -204,6 +205,7 @@
       const data = await apiRequest('/api/auth/me');
       serverState.enabled = true;
       serverState.user = data.user || null;
+      if (data.user) localStorage.setItem(SERVER_HINT_KEY, data.user.username);
       if (data.user?.progress) {
         setCurrentProgress(data.user.progress);
       }
@@ -262,6 +264,7 @@
     });
     serverState.user = data.user;
     setCurrentProgress(data.user?.progress || { completed: [], solved: [] });
+    localStorage.setItem(SERVER_HINT_KEY, data.user?.username || normalizeUsername(username));
     location.reload();
   }
 
@@ -276,6 +279,7 @@
     });
     serverState.user = data.user;
     setCurrentProgress(data.user?.progress || { completed: [], solved: [] });
+    localStorage.setItem(SERVER_HINT_KEY, data.user?.username || normalizeUsername(username));
     location.reload();
   }
 
@@ -287,6 +291,7 @@
     saveActiveProgress();
     await apiRequest('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) }).catch(() => {});
     serverState.user = null;
+    localStorage.removeItem(SERVER_HINT_KEY);
     location.reload();
   }
 
@@ -416,6 +421,23 @@
     renderAuthEntry();
     renderAuthModal();
     updateAuthEntry();
+
+    const wasReturning = document.body.classList.contains('user-returning');
+
+    if (getActiveUser()) {
+      document.body.classList.remove('user-returning');
+      const intro = document.getElementById('intro-screen');
+      if (intro) {
+        intro.classList.add('intro-screen-hidden');
+        document.body.classList.remove('intro-active');
+        setTimeout(() => intro.remove(), 420);
+      }
+    } else if (wasReturning) {
+      // Hint existed but session expired — restore intro so user can log in
+      document.body.classList.remove('user-returning');
+      localStorage.removeItem(SERVER_HINT_KEY);
+      document.body.classList.add('intro-active');
+    }
   }
 
   function escapeHTML(value) {

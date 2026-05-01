@@ -7,6 +7,16 @@
     setTimeout(() => intro.remove(), 420);
   }
 
+  async function handleEnter() {
+    if (window.SQLAuthReady) await window.SQLAuthReady;
+    if (!window.SQLAuth) return;
+    if (!window.SQLAuth.getActiveUser()) {
+      window.SQLAuth.open('register');
+    } else {
+      closeIntro();
+    }
+  }
+
   function initIntro() {
     const intro = document.getElementById('intro-screen');
     const enter = document.getElementById('intro-enter');
@@ -14,9 +24,9 @@
       document.body.classList.remove('intro-active');
       return;
     }
-    enter.addEventListener('click', closeIntro);
+    enter.addEventListener('click', handleEnter);
     intro.addEventListener('keydown', event => {
-      if (event.key === 'Enter') closeIntro();
+      if (event.key === 'Enter') handleEnter();
     });
     setTimeout(() => enter.focus(), 150);
   }

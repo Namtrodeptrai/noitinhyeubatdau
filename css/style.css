@@ -97,6 +97,7 @@ body.intro-active .chatbot-container{visibility:hidden}
 .intro-photo-caption strong{font-size:1.1em;font-weight:900;letter-spacing:.08em}
 .intro-photo-caption span{color:#fde68a;font-size:1em;font-weight:900;text-transform:uppercase;letter-spacing:.08em;text-align:center;white-space:nowrap}
 .intro-screen-hidden{opacity:0;pointer-events:none;transition:opacity .38s ease}
+body.user-returning .intro-screen{display:none}
 
 /* ===== Sidebar ===== */
 .sidebar{position:fixed;left:0;top:0;bottom:0;width:var(--sidebar-w);background:var(--bg-secondary);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;transition:transform var(--transition)}
@@ -164,7 +165,7 @@ body.intro-active .chatbot-container{visibility:hidden}
 .auth-entry-avatar{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--orange));color:#fff;font-size:.78em;font-weight:800;flex-shrink:0}
 
 /* ===== Auth Modal ===== */
-.auth-modal{position:fixed;inset:0;z-index:500;display:none;align-items:center;justify-content:center;padding:20px}
+.auth-modal{position:fixed;inset:0;z-index:10001;display:none;align-items:center;justify-content:center;padding:20px}
 .auth-modal.open{display:flex}
 .auth-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.62);backdrop-filter:blur(5px)}
 .auth-dialog{position:relative;width:min(420px,100%);background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow);padding:24px;animation:slideUp .22s ease}
