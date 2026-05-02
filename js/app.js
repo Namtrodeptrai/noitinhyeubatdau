@@ -661,13 +661,154 @@ function getWeeklyChartData() {
     `).join('');
   }
 
+  function normalizeRelationToken(value) {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/^t(?=[a-z])/, '')
+      .replace(/[^a-z0-9]+/g, '');
+  }
+
+  function getLikelyTableKeys(table) {
+    const tableToken = normalizeRelationToken(table.name);
+    const tableBase = tableToken.replace(/^(tbl|table)/, '');
+    return (table.columns || []).map((column, index) => {
+      const colToken = normalizeRelationToken(column.name);
+      const score =
+        index === 0 ? 3 :
+        colToken === 'id' || colToken === `id${tableBase}` || colToken === `ma${tableBase}` || /^ma[A-Za-z0-9]/.test(String(column.name || '')) ? 2 :
+        0;
+      return { table, column, index, colToken, score };
+    }).filter(item => item.score > 0);
+  }
+
+  function getUserDataRelations(tables) {
+    const keys = tables.flatMap(getLikelyTableKeys);
+    const relations = [];
+    const seen = new Set();
+    tables.forEach(fromTable => {
+      (fromTable.columns || []).forEach(fromColumn => {
+        const fromToken = normalizeRelationToken(fromColumn.name);
+        keys.forEach(key => {
+          if (key.table.name === fromTable.name) return;
+          if (fromToken !== key.colToken) return;
+          const id = `${fromTable.name}.${fromColumn.name}->${key.table.name}.${key.column.name}`;
+          if (seen.has(id)) return;
+          seen.add(id);
+          relations.push({
+            fromTable: fromTable.name,
+            fromColumn: fromColumn.name,
+            toTable: key.table.name,
+            toColumn: key.column.name
+          });
+        });
+      });
+    });
+    return relations.slice(0, 24);
+  }
+
+  function truncateDiagramText(value, max = 24) {
+    const text = String(value ?? '');
+    return text.length > max ? `${text.slice(0, Math.max(0, max - 3))}...` : text;
+  }
+
+  function getUserDataDiagramHTML() {
+    const summary = typeof getUserDataSummary === 'function' ? getUserDataSummary() : { tables: [] };
+    const tables = summary.tables || [];
+    if (!tables.length) {
+      return `
+        <div class="data-diagram-empty">
+          <strong>Chưa có schema để vẽ sơ đồ</strong>
+          <span>Upload file trước, sau đó mở lại sơ đồ để xem các bảng và quan hệ suy đoán.</span>
+        </div>`;
+    }
+
+    const columns = tables.length <= 1 ? 1 : tables.length <= 4 ? 2 : 3;
+    const nodeWidth = 250;
+    const nodeHeight = 136;
+    const gapX = 56;
+    const gapY = 52;
+    const pad = 28;
+    const rows = Math.ceil(tables.length / columns);
+    const width = pad * 2 + columns * nodeWidth + (columns - 1) * gapX;
+    const height = pad * 2 + rows * nodeHeight + (rows - 1) * gapY;
+    const positions = new Map();
+
+    tables.forEach((table, index) => {
+      const col = index % columns;
+      const row = Math.floor(index / columns);
+      positions.set(table.name, {
+        x: pad + col * (nodeWidth + gapX),
+        y: pad + row * (nodeHeight + gapY)
+      });
+    });
+
+    const relations = getUserDataRelations(tables);
+    const lines = relations.map((relation, index) => {
+      const from = positions.get(relation.fromTable);
+      const to = positions.get(relation.toTable);
+      if (!from || !to) return '';
+      const fromX = from.x + nodeWidth / 2;
+      const fromY = from.y + nodeHeight / 2;
+      const toX = to.x + nodeWidth / 2;
+      const toY = to.y + nodeHeight / 2;
+      const midX = (fromX + toX) / 2;
+      const path = `M ${fromX} ${fromY} C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`;
+      return `<path class="data-diagram-link link-${index % 6}" d="${path}" marker-end="url(#diagram-arrow)" />`;
+    }).join('');
+
+    const nodes = tables.map(table => {
+      const pos = positions.get(table.name);
+      const visibleColumns = (table.columns || []).slice(0, 5);
+      const hidden = Math.max(0, (table.columns || []).length - visibleColumns.length);
+      return `
+        <g class="data-diagram-node" transform="translate(${pos.x} ${pos.y})">
+          <rect class="data-diagram-node-bg" width="${nodeWidth}" height="${nodeHeight}" rx="8" />
+          <rect class="data-diagram-node-head" width="${nodeWidth}" height="36" rx="8" />
+          <text class="data-diagram-node-title" x="14" y="23">${escapeAppHTML(truncateDiagramText(table.name, 22))}</text>
+          <text class="data-diagram-node-count" x="${nodeWidth - 14}" y="23" text-anchor="end">${Number(table.rows || 0)} dòng</text>
+          ${visibleColumns.map((column, index) => `
+            <text class="data-diagram-column" x="14" y="${58 + index * 15}">
+              ${escapeAppHTML(truncateDiagramText(column.name, 20))} <tspan>${escapeAppHTML(truncateDiagramText(column.type || 'TEXT', 8))}</tspan>
+            </text>
+          `).join('')}
+          ${hidden ? `<text class="data-diagram-more" x="14" y="${58 + visibleColumns.length * 15}">+${hidden} cột khác</text>` : ''}
+        </g>`;
+    }).join('');
+
+    return `
+      <div class="data-diagram-canvas">
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Sơ đồ bảng dữ liệu upload">
+          <defs>
+            <marker id="diagram-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" />
+            </marker>
+          </defs>
+          <g class="data-diagram-links">${lines}</g>
+          <g class="data-diagram-nodes">${nodes}</g>
+        </svg>
+      </div>
+      <div class="data-diagram-relations">
+        <strong>Quan hệ suy đoán</strong>
+        ${relations.length
+          ? `<ul>${relations.map(relation => `<li><code>${escapeAppHTML(relation.fromTable)}.${escapeAppHTML(relation.fromColumn)}</code> → <code>${escapeAppHTML(relation.toTable)}.${escapeAppHTML(relation.toColumn)}</code></li>`).join('')}</ul>`
+          : '<span>Chưa thấy cột khóa trùng tên giữa các bảng.</span>'}
+      </div>
+      <div class="data-diagram-table-actions">
+        ${tables.map(table => `<button type="button" data-diagram-query-table="${escapeAppHTML(table.name)}">${escapeAppHTML(table.name)}</button>`).join('')}
+      </div>`;
+  }
+
   function renderImportMessage(result) {
     if (result.type === 'sql') {
       const detected = result.detectedDialect?.dialect
         ? ` nhận diện ${SQL_DIALECTS[result.detectedDialect.dialect]?.name || result.detectedDialect.dialect}`
         : '';
       const stats = result.stats
-        ? ` (${result.stats.executed}/${result.stats.statements} statement chạy; data ${result.stats.data || 0}; schema ${result.stats.schema || 0}; metadata ${result.stats.metadata || 0}; lỗi ${result.stats.failed || 0}${result.stats.shapeFixes ? `; tự dựng schema ${result.stats.shapeFixes}` : ''}${result.stats.copyRows ? `; COPY ${result.stats.copyRows} dòng` : ''})`
+        ? ` (${result.stats.executed}/${result.stats.statements} statement chạy; data ${result.stats.data || 0}; schema ${result.stats.schema || 0}; metadata ${result.stats.metadata || 0}${result.stats.repaired ? `; tự sửa ${result.stats.repaired}` : ''}${result.stats.ignored ? `; bỏ qua ${result.stats.ignored}` : ''}${result.stats.failed ? `; lỗi ${result.stats.failed}` : ''}${result.stats.shapeFixes ? `; tự dựng schema ${result.stats.shapeFixes}` : ''}${result.stats.copyRows ? `; COPY ${result.stats.copyRows} dòng` : ''})`
         : '';
       return `<li><strong>${escapeAppHTML(result.fileName)}</strong>: ${escapeAppHTML(result.message)}${escapeAppHTML(detected)}${escapeAppHTML(stats)}</li>`;
     }
@@ -1109,6 +1250,45 @@ function getWeeklyChartData() {
       });
     });
     refreshUserDataMissions();
+    refreshUserDataDiagram();
+  }
+
+  function bindUserDataDiagramActions() {
+    document.querySelectorAll('[data-diagram-query-table]').forEach(button => {
+      button.addEventListener('click', () => {
+        const input = document.getElementById('user-sql-input');
+        if (!input) return;
+        const dialect = getSelectedUserDialect();
+        input.value = limitUserSQL(`SELECT * FROM ${quoteUserQueryIdentifier(button.dataset.diagramQueryTable, dialect)}`, 20, dialect);
+        updateUserDataLineNumbers();
+        closeUserDataDiagram();
+        input.focus();
+      });
+    });
+  }
+
+  function refreshUserDataDiagram() {
+    const body = document.getElementById('user-data-diagram-body');
+    if (!body) return;
+    body.innerHTML = getUserDataDiagramHTML();
+    bindUserDataDiagramActions();
+  }
+
+  function openUserDataDiagram() {
+    const drawer = document.getElementById('user-data-diagram-drawer');
+    if (!drawer) return;
+    refreshUserDataDiagram();
+    drawer.classList.add('open');
+    drawer.setAttribute('aria-hidden', 'false');
+    document.getElementById('btn-toggle-data-diagram')?.classList.add('active');
+  }
+
+  function closeUserDataDiagram() {
+    const drawer = document.getElementById('user-data-diagram-drawer');
+    if (!drawer) return;
+    drawer.classList.remove('open');
+    drawer.setAttribute('aria-hidden', 'true');
+    document.getElementById('btn-toggle-data-diagram')?.classList.remove('active');
   }
 
   function setUserDataStatus(html, type = '') {
@@ -1230,6 +1410,10 @@ function getWeeklyChartData() {
                 <select id="user-data-dialect">${getDialectOptionsHTML(getSelectedDialect(), false)}</select>
               </label>
               <div class="data-query-actions">
+                <button id="btn-toggle-data-diagram" class="editor-btn data-diagram-toggle" type="button" title="Xem sơ đồ bảng">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><path d="M9 6h6M6 9l4 6M18 9l-4 6"/></svg>
+                  Sơ đồ
+                </button>
                 <button id="btn-clear-user-query" class="editor-btn" type="button">Xóa</button>
                 <button id="btn-run-user-query" class="editor-btn btn-run" type="button">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -1268,6 +1452,21 @@ function getWeeklyChartData() {
             </div>
           </section>
         </div>
+        <div id="user-data-diagram-drawer" class="data-diagram-drawer" aria-hidden="true">
+          <button class="data-diagram-backdrop" type="button" data-close-user-diagram aria-label="Đóng sơ đồ"></button>
+          <aside class="data-diagram-panel" aria-label="Sơ đồ dữ liệu upload">
+            <div class="data-diagram-head">
+              <div>
+                <span>Schema Diagram</span>
+                <h3>Sơ đồ bảng dữ liệu</h3>
+              </div>
+              <button class="data-diagram-close" type="button" data-close-user-diagram aria-label="Đóng sơ đồ">×</button>
+            </div>
+            <div id="user-data-diagram-body" class="data-diagram-body">
+              ${getUserDataDiagramHTML()}
+            </div>
+          </aside>
+        </div>
       </section>`;
 
     const fileInput = document.getElementById('user-data-file');
@@ -1293,6 +1492,11 @@ function getWeeklyChartData() {
       handleUserDataFiles(event.dataTransfer?.files);
     });
     document.getElementById('btn-run-user-query')?.addEventListener('click', runUserDataQuery);
+    document.getElementById('btn-toggle-data-diagram')?.addEventListener('click', openUserDataDiagram);
+    document.getElementById('user-data-diagram-drawer')?.addEventListener('click', event => {
+      if (event.target.closest('[data-close-user-diagram]')) closeUserDataDiagram();
+    });
+    bindUserDataDiagramActions();
     document.getElementById('btn-refresh-missions')?.addEventListener('click', () => {
       userMissionOffset += 1;
       refreshUserDataMissions();

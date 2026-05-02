@@ -65,7 +65,10 @@ EXERCISES['triggers'] = [
   { id:'extr-1', title:'Tạo Trigger log', diff:'hard',
     desc:'Tạo bảng <code>AuditLog</code> (ID, HanhDong TEXT, ThoiGian TEXT). Tạo trigger <code>log_them_sp</code> chạy AFTER INSERT trên SanPham, ghi log "Thêm SP mới". Thêm 1 sản phẩm và SELECT AuditLog.',
     hint:'CREATE TRIGGER log_them_sp AFTER INSERT ON SanPham BEGIN INSERT INTO AuditLog ... END;',
-    initSQL:"", check: r => r.length>=1 && JSON.stringify(r).includes('AuditLog') || JSON.stringify(r).includes('Thêm') },
+    initSQL:"", check: r => {
+      const text = JSON.stringify(r).toLowerCase();
+      return r.length >= 1 && (text.includes('auditlog') || text.includes('thêm') || text.includes('them'));
+    } },
 ];
 
 // SVG Diagrams for lessons

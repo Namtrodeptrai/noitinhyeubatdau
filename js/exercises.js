@@ -640,7 +640,13 @@ function renderHackerRankProblem(ex, expectedSQL, dialect) {
 function normalizeCell(value) {
   if (value === null || value === undefined) return null;
   if (typeof value === 'number') return Number(value.toFixed(6));
-  return String(value);
+  const text = String(value);
+  const trimmed = text.trim();
+  if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(trimmed)) {
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric)) return Number(numeric.toFixed(6));
+  }
+  return text;
 }
 
 function normalizeRows(rows, orderSensitive) {
@@ -972,7 +978,7 @@ function runExercise(id) {
 
   const ruleCorrect = exercise.check(data.results || [], data.normalized?.sql || sql, dialect);
   const compare = expectedData ? compareResultSets(expectedData.results || [], data.results || [], expectedSQL) : { ok: ruleCorrect, issues: [] };
-  const correct = ruleCorrect && compare.ok;
+  const correct = expectedData ? compare.ok : ruleCorrect;
   resultEl.innerHTML = expectedData ? renderExerciseComparison(expectedData, data, compare) : renderActualOnlyResult(data);
   if (correct) {
     setExerciseSubmitState(id, true);
@@ -1095,7 +1101,7 @@ function submitExercise(id) {
     resultEl.innerHTML = expectedData && !expectedData.error
       ? renderExerciseComparison(expectedData, data, compare)
       : renderActualOnlyResult(data);
-    correct = ruleCorrect && compare.ok;
+    correct = expectedData && !expectedData.error ? compare.ok : ruleCorrect;
   }
 
   if (correct) {

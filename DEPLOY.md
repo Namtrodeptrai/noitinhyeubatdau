@@ -2,8 +2,8 @@
 
 Ứng dụng có thể chạy theo 2 kiểu:
 
-- **Vercel static**: phù hợp nhất để public web học SQL nhanh. SQL Bot, bài giảng, bài tập và tiến độ vẫn chạy bằng trình duyệt/localStorage. Tài khoản nếu dùng sẽ là tài khoản local trên từng trình duyệt.
-- **Render web service**: dùng `server.js` để có API đăng nhập và lưu tiến độ trên server có disk.
+- **Vercel + KV/Upstash Redis**: dùng serverless API trong thư mục `api/` để đăng nhập/lưu tiến độ tập trung. Mật khẩu được hash bằng bcrypt.
+- **Render web service**: dùng `server.js` để có API đăng nhập và lưu tiến độ trên server có disk. Mật khẩu được hash bằng bcrypt.
 
 ## Chạy local khi đã cài Node.js
 
@@ -40,6 +40,7 @@ Render tự cấp `PORT`. Có thể cấu hình thêm:
 ```text
 NODE_ENV=production
 DATA_DIR=/opt/render/project/src/data
+BCRYPT_ROUNDS=12
 ```
 
 Chatbot hiện dùng SQL Bot nội bộ, không cần cấu hình API key.
@@ -60,12 +61,33 @@ Nếu mở bằng `file://`, app vẫn chạy fallback bằng localStorage, như
 
 ## Deploy Vercel
 
-Vercel không phù hợp với `server.js` dạng long-running server ghi file `data/users.json`, nên project đã có cấu hình static:
+Vercel không phù hợp với `server.js` dạng long-running server ghi file `data/users.json`. Bản này dùng serverless API trong `api/` và cần một KV/Redis REST store để tài khoản dùng được trên nhiều thiết bị.
 
 ```text
 vercel.json
 .vercelignore
 ```
+
+Cấu hình storage trước khi deploy:
+
+1. Tạo Vercel KV hoặc Upstash Redis.
+2. Thêm biến môi trường vào Vercel Project:
+
+```text
+KV_REST_API_URL=...
+KV_REST_API_TOKEN=...
+BCRYPT_ROUNDS=12
+```
+
+Hoặc dùng tên biến Upstash:
+
+```text
+UPSTASH_REDIS_REST_URL=...
+UPSTASH_REDIS_REST_TOKEN=...
+BCRYPT_ROUNDS=12
+```
+
+Nếu thiếu KV/Redis env, `/api/health` sẽ trả `dynamic: false`; app vẫn học được bằng tiến độ local/guest nhưng sẽ không tạo tài khoản dùng chung nhiều thiết bị.
 
 Các file lớn/local không được đưa lên Vercel:
 
@@ -74,7 +96,6 @@ node-v22.15.0-win-x64/
 node.zip
 node-installer.msi
 data/
-server.js
 render.yaml
 ```
 
@@ -83,7 +104,17 @@ Cách deploy:
 1. Đưa project lên GitHub.
 2. Vào Vercel, chọn **New Project** và import repo.
 3. Framework chọn **Other** nếu Vercel hỏi.
-4. Build Command và Install Command để trống, Output Directory là `.` theo `vercel.json`.
+4. Build Command để trống, Install Command dùng `npm install`, Output Directory là `.` theo `vercel.json`.
 5. Deploy xong mở URL Vercel.
 
-Trên Vercel, `/api/*` không dùng backend. `auth.js` sẽ tự fallback về localStorage, nên người học vẫn dùng web, SQL Bot, bài tập và tiến độ bình thường trên trình duyệt của họ.
+Sau khi deploy, kiểm tra:
+
+```text
+https://your-domain.vercel.app/api/health
+```
+
+Kết quả đúng khi storage đã bật:
+
+```json
+{"ok":true,"dynamic":true,"storage":"redis","password":"bcrypt"}
+```

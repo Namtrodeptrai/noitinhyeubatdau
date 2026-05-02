@@ -15,8 +15,13 @@
   const serverState = {
     checked: false,
     enabled: false,
-    user: null
+    user: null,
+    error: ''
   };
+
+  function isFileMode() {
+    return location.protocol === 'file:';
+  }
 
   function readJSON(key, fallback) {
     try {
@@ -194,7 +199,7 @@
   }
 
   async function detectServerAuth() {
-    if (location.protocol === 'file:') {
+    if (isFileMode()) {
       hydrateLocalActiveUserProgress();
       serverState.checked = true;
       return false;
@@ -205,15 +210,18 @@
       const data = await apiRequest('/api/auth/me');
       serverState.enabled = true;
       serverState.user = data.user || null;
+      serverState.error = '';
       if (data.user) localStorage.setItem(SERVER_HINT_KEY, data.user.username);
       if (data.user?.progress) {
         setCurrentProgress(data.user.progress);
       }
       serverState.checked = true;
       return true;
-    } catch {
-      hydrateLocalActiveUserProgress();
+    } catch (error) {
+      if (isFileMode()) hydrateLocalActiveUserProgress();
       serverState.enabled = false;
+      serverState.user = null;
+      serverState.error = error.message || 'Backend tài khoản chưa sẵn sàng.';
       serverState.checked = true;
       return false;
     }
@@ -222,12 +230,14 @@
   const readyPromise = detectServerAuth();
 
   function getActiveUser() {
-    return serverState.enabled ? serverState.user : getLocalActiveUser();
+    if (serverState.enabled) return serverState.user;
+    return isFileMode() ? getLocalActiveUser() : null;
   }
 
   function saveActiveProgress() {
     if (!serverState.enabled) {
-      saveLocalActiveProgress();
+      if (isFileMode()) saveLocalActiveProgress();
+      else saveGuestProgress();
       return;
     }
     if (!serverState.user) return;
@@ -244,11 +254,14 @@
       if (serverState.user?.progress) setCurrentProgress(serverState.user.progress);
       return;
     }
-    hydrateLocalActiveUserProgress();
+    if (isFileMode()) hydrateLocalActiveUserProgress();
   }
 
   async function register(username, password, confirm) {
     if (!serverState.enabled) {
+      if (!isFileMode()) {
+        throw new Error('Backend tài khoản chưa bật. Hãy cấu hình KV/Upstash rồi deploy lại để tạo tài khoản dùng chung nhiều thiết bị.');
+      }
       registerLocal(username, password, confirm);
       return;
     }
@@ -270,6 +283,9 @@
 
   async function login(username, password) {
     if (!serverState.enabled) {
+      if (!isFileMode()) {
+        throw new Error('Backend tài khoản chưa bật. Tài khoản tập trung cần API server và KV/Upstash.');
+      }
       loginLocal(username, password);
       return;
     }
@@ -285,7 +301,8 @@
 
   async function logout() {
     if (!serverState.enabled) {
-      logoutLocal();
+      if (isFileMode()) logoutLocal();
+      else location.reload();
       return;
     }
     saveActiveProgress();
@@ -326,7 +343,11 @@
     const user = getActiveUser();
     const content = document.getElementById('auth-content');
     if (!content) return;
-    const storageText = serverState.enabled ? 'trên server deploy' : 'trên trình duyệt hiện tại';
+    const storageText = serverState.enabled
+      ? 'trên server deploy'
+      : isFileMode()
+        ? 'trên trình duyệt hiện tại'
+        : 'sau khi backend tài khoản được bật';
     if (user) {
       const solved = user.progress?.solved?.length || 0;
       const completed = user.progress?.completed?.length || 0;
@@ -352,6 +373,7 @@
     content.innerHTML = `
       <h3 id="auth-title">${isRegister ? 'Tạo tài khoản' : 'Đăng nhập'}</h3>
       <p class="auth-note">Tài khoản dùng để lưu tiến độ học và bài tập ${storageText}.</p>
+      ${!serverState.enabled && !isFileMode() ? `<div class="auth-message">${escapeHTML(serverState.error || 'Backend tài khoản chưa sẵn sàng.')}</div>` : ''}
       <div class="auth-tabs">
         <button class="${!isRegister ? 'active' : ''}" type="button" data-auth-mode="login">Đăng nhập</button>
         <button class="${isRegister ? 'active' : ''}" type="button" data-auth-mode="register">Tạo tài khoản</button>

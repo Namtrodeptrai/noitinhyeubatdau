@@ -6,9 +6,7 @@ data/
 .env
 server.out.log
 server.err.log
-server.js
 render.yaml
-package.json
 DEPLOY.md
 .gitignore
 .vercelignore

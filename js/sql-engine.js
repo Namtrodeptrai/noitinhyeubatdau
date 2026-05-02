@@ -280,6 +280,16 @@ function normalizeSQLForExecution(sql, dialect = 'sqlite') {
     out = out.replace(/\bINT\s+IDENTITY\s*\(\s*1\s*,\s*1\s*\)\s+PRIMARY\s+KEY\b/ig, 'INTEGER PRIMARY KEY AUTOINCREMENT');
     out = replaceFunctionCalls(out, 'ISNULL', inner => `IFNULL(${inner})`);
     out = replaceFunctionCalls(out, 'CONCAT', inner => splitSqlArgs(inner).join(' || '));
+    out = replaceFunctionCalls(out, 'CONVERT', inner => {
+      const args = splitSqlArgs(inner);
+      return args[1] || args[0] || 'NULL';
+    });
+    out = replaceFunctionCalls(out, 'TRY_CONVERT', inner => {
+      const args = splitSqlArgs(inner);
+      return args[1] || args[0] || 'NULL';
+    });
+    out = out.replace(/\bGETUTCDATE\s*\(\s*\)/ig, "DATETIME('now')");
+    out = out.replace(/\bNEWID\s*\(\s*\)/ig, "LOWER(HEX(RANDOMBLOB(16)))");
     notes.push('Đã mô phỏng một số hàm/cú pháp SQL Server bằng SQLite để chạy trong trình duyệt.');
   }
 
@@ -543,6 +553,15 @@ function stripSQLControlFlow(sql) {
   return kept.join('\n');
 }
 
+function collapseQualifiedStatementTargets(sql) {
+  const ident = '(?:\\[[^\\]]+\\]|`[^`]+`|"[^"]+"|[A-Za-z_][\\w$]*)';
+  const qualified = `(${ident})\\s*\\.\\s*(${ident})`;
+  let out = String(sql || '');
+  out = out.replace(new RegExp(`\\b(INSERT)\\s+(INTO\\s+)?${qualified}`, 'ig'), (_, prefix, into = '', _schema, table) => `${prefix} ${into}${table}`);
+  out = out.replace(new RegExp(`\\b(CREATE\\s+TABLE(?:\\s+IF\\s+NOT\\s+EXISTS)?|DROP\\s+TABLE(?:\\s+IF\\s+EXISTS)?|ALTER\\s+TABLE|UPDATE|DELETE\\s+FROM)\\s+${qualified}`, 'ig'), (_, prefix, _schema, table) => `${prefix} ${table}`);
+  return out;
+}
+
 function prepareSQLScriptForSQLite(sql, dialect = 'sqlite') {
   let out = String(sql || '').replace(/^\uFEFF/, '');
   const selected = SQL_DIALECTS[dialect] ? dialect : 'sqlite';
@@ -565,11 +584,13 @@ function prepareSQLScriptForSQLite(sql, dialect = 'sqlite') {
 
   if (selected === 'sqlserver') {
     out = stripSQLControlFlow(out);
+    out = collapseQualifiedStatementTargets(out);
     out = out.replace(/^\s*DROP\s+TABLE\s+(?!IF\s+EXISTS\b)/gim, 'DROP TABLE IF EXISTS ');
     out = out.replace(/^\s*ALTER\s+TABLE\b[\s\S]*?\b(?:ADD|DROP|CHECK|NOCHECK)\s+CONSTRAINT\b[\s\S]*?(?=^\s*(?:CREATE|INSERT|DROP|ALTER|SELECT|UPDATE|DELETE|;|$))/gim, '');
     out = out.replace(/\[dbo\]\s*\./ig, '');
     out = out.replace(/\bdbo\./ig, '');
     out = out.replace(/^\s*INSERT\s+(?=(?:\[[^\]]+\]|"[^"]+"|[A-Za-z_][\w$]*)\s*\()/gim, 'INSERT INTO ');
+    out = out.replace(/^\s*INSERT\s+(?!INTO\b)(?=(?:\[[^\]]+\]|"[^"]+"|`[^`]+`|[A-Za-z_][\w$]*)\s+(?:VALUES|SELECT)\b)/gim, 'INSERT INTO ');
     out = out.replace(/\bN'/g, "'");
     out = out.replace(/\[(nvarchar|varchar|nchar|char|text|ntext)\]\s*(?:\(\s*(?:MAX|\d+)\s*\))?/ig, 'TEXT ');
     out = out.replace(/\b(nvarchar|varchar|nchar|char|text|ntext)\s*(?:\(\s*(?:MAX|\d+)\s*\))?/ig, 'TEXT ');
@@ -579,11 +600,18 @@ function prepareSQLScriptForSQLite(sql, dialect = 'sqlite') {
     out = out.replace(/\b(decimal|numeric|money|smallmoney|float|real)\s*(?:\([^)]*\))?/ig, 'REAL ');
     out = out.replace(/\[(int|bigint|smallint|tinyint|bit)\]/ig, 'INTEGER ');
     out = out.replace(/\b(int|bigint|smallint|tinyint|bit)\b/ig, 'INTEGER ');
+    out = out.replace(/\[(varbinary|binary|image|xml|uniqueidentifier|sysname)\]\s*(?:\([^)]*\))?/ig, 'TEXT ');
+    out = out.replace(/\b(varbinary|binary|image|xml|uniqueidentifier|sysname)\s*(?:\([^)]*\))?/ig, 'TEXT ');
     out = out.replace(/\bIDENTITY\s*\(\s*\d+\s*,\s*\d+\s*\)/ig, '');
     out = out.replace(/\b(?:CLUSTERED|NONCLUSTERED)\b/ig, '');
+    out = out.replace(/\b(?:ROWGUIDCOL|PERSISTED|SPARSE|FILESTREAM)\b/ig, '');
+    out = out.replace(/\s+COLLATE\s+[\w_]+/ig, '');
+    out = out.replace(/\s+NOT\s+FOR\s+REPLICATION\b/ig, '');
     out = out.replace(/\s+WITH\s*\([^)]*\)/ig, '');
     out = out.replace(/\s+ON\s+\[PRIMARY\]/ig, '');
     out = out.replace(/\s+TEXTIMAGE_ON\s+\[PRIMARY\]/ig, '');
+    out = out.replace(/\s+ON\s+"PRIMARY"/ig, '');
+    out = out.replace(/\s+TEXTIMAGE_ON\s+"PRIMARY"/ig, '');
     out = out.replace(/^\s*SET\s+IDENTITY_INSERT\b[^\n;]*(?:;)?/gim, '');
   }
 
@@ -594,6 +622,7 @@ function prepareSQLScriptForSQLite(sql, dialect = 'sqlite') {
   }
 
   if (selected === 'mysql') {
+    out = collapseQualifiedStatementTargets(out);
     out = out.replace(/`/g, '"');
     out = out.replace(/\bUNSIGNED\b/ig, '');
     out = out.replace(/\bTINYINT\b\s*\(\s*1\s*\)/ig, 'INTEGER');
@@ -606,6 +635,10 @@ function prepareSQLScriptForSQLite(sql, dialect = 'sqlite') {
     out = out.replace(/\s+COLLATE\s+\w+/ig, '');
     out = out.replace(/\)\s*ENGINE\s*=\s*\w+[^;]*;/ig, ');');
     out = out.replace(/\)\s*DEFAULT\s+CHARSET\s*=\s*[\w-]+[^;]*;/ig, ');');
+  }
+
+  if (selected === 'postgresql') {
+    out = collapseQualifiedStatementTargets(out);
   }
 
   out = terminateLineSeparatedStatements(out);
@@ -774,6 +807,228 @@ function classifyUploadSQLStatement(statement) {
   return { action: 'execute', kind: 'unknown' };
 }
 
+function inferSQLiteColumnType(typeText) {
+  const text = String(typeText || '').toUpperCase();
+  if (/\b(INT|BIT|BOOL)\b/.test(text)) return 'INTEGER';
+  if (/\b(REAL|FLOAT|DOUBLE|DECIMAL|NUMERIC|MONEY)\b/.test(text)) return 'REAL';
+  if (/\b(BLOB|BINARY|VARBINARY|IMAGE)\b/.test(text)) return 'BLOB';
+  return 'TEXT';
+}
+
+function readLeadingIdentifier(source) {
+  const text = String(source || '').trim();
+  if (!text) return null;
+  const first = text[0];
+  if (first === '"' || first === '`') {
+    let value = first;
+    for (let i = 1; i < text.length; i++) {
+      const ch = text[i];
+      const next = text[i + 1];
+      value += ch;
+      if (ch === first && next === first) {
+        value += next;
+        i += 1;
+        continue;
+      }
+      if (ch === first) {
+        return { raw: value, name: cleanSQLIdentifierPart(value), rest: text.slice(i + 1).trim() };
+      }
+    }
+    return null;
+  }
+  if (first === '[') {
+    const end = text.indexOf(']');
+    if (end === -1) return null;
+    const raw = text.slice(0, end + 1);
+    return { raw, name: cleanSQLIdentifierPart(raw), rest: text.slice(end + 1).trim() };
+  }
+  const match = text.match(/^([A-Za-z_][\w$]*|[^\s,()]+)\s*([\s\S]*)$/);
+  return match ? { raw: match[1], name: cleanSQLIdentifierPart(match[1]), rest: (match[2] || '').trim() } : null;
+}
+
+function findCreateTableBody(statement) {
+  const source = String(statement || '').trim();
+  const match = source.match(/^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([\s\S]+?)\s*\(/i);
+  if (!match) return null;
+  const tableRef = match[1].trim();
+  const start = match[0].lastIndexOf('(');
+  let depth = 0;
+  let quote = null;
+  for (let i = start; i < source.length; i++) {
+    const ch = source[i];
+    const next = source[i + 1];
+    if (quote) {
+      if (ch === quote && next === quote) {
+        i += 1;
+      } else if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === '\'' || ch === '"' || ch === '`') {
+      quote = ch;
+    } else if (ch === '(') {
+      depth += 1;
+    } else if (ch === ')') {
+      depth -= 1;
+      if (depth === 0) {
+        return {
+          table: finalTableNameFromRef(tableRef),
+          body: source.slice(start + 1, i)
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function parseCreateTableColumns(statement) {
+  const parsed = findCreateTableBody(statement);
+  if (!parsed?.table) return null;
+  const columns = splitSqlArgs(parsed.body)
+    .map(part => part.trim().replace(/,$/, ''))
+    .filter(Boolean)
+    .filter(part => !/^(CONSTRAINT|PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK|KEY|INDEX|FULLTEXT\s+KEY|SPATIAL\s+KEY)\b/i.test(part))
+    .map(part => {
+      const column = readLeadingIdentifier(part);
+      if (!column?.name) return null;
+      return {
+        name: column.name,
+        type: inferSQLiteColumnType(column.rest)
+      };
+    })
+    .filter(Boolean);
+  return columns.length ? { table: parsed.table, columns } : null;
+}
+
+function ensureCreateTableShape(statement) {
+  const shape = parseCreateTableColumns(statement);
+  if (!shape?.columns?.length) return null;
+  const changes = [];
+  if (!tableExistsInUserDb(shape.table)) {
+    const cols = shape.columns.map(column => `${quoteSQLIdentifier(column.name)} ${column.type}`).join(', ');
+    userDb.run(`CREATE TABLE IF NOT EXISTS ${quoteSQLIdentifier(shape.table)} (${cols});`);
+    changes.push(`rebuilt table ${shape.table}`);
+    return changes;
+  }
+  const existing = new Set(getUserDbColumnNames(shape.table).map(column => column.toLowerCase()));
+  shape.columns.forEach(column => {
+    if (!existing.has(column.name.toLowerCase())) {
+      userDb.run(`ALTER TABLE ${quoteSQLIdentifier(shape.table)} ADD COLUMN ${quoteSQLIdentifier(column.name)} ${column.type};`);
+      existing.add(column.name.toLowerCase());
+      changes.push(`added column ${shape.table}.${column.name}`);
+    }
+  });
+  return changes.length ? changes : null;
+}
+
+function parseAlterTableAddColumn(statement) {
+  const source = String(statement || '').trim();
+  const match = source.match(/^ALTER\s+TABLE\s+((?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)(?:\s*\.\s*(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*))?)\s+ADD\s+(?:COLUMN\s+)?([\s\S]+)$/i);
+  if (!match || /\bCONSTRAINT\b/i.test(match[2])) return null;
+  const column = readLeadingIdentifier(match[2]);
+  if (!column?.name) return null;
+  return {
+    table: finalTableNameFromRef(match[1]),
+    column: {
+      name: column.name,
+      type: inferSQLiteColumnType(column.rest)
+    }
+  };
+}
+
+function ensureAlterTableAddColumn(statement) {
+  const parsed = parseAlterTableAddColumn(statement);
+  if (!parsed?.table || !parsed.column?.name) return null;
+  if (!tableExistsInUserDb(parsed.table)) {
+    userDb.run(`CREATE TABLE ${quoteSQLIdentifier(parsed.table)} (${quoteSQLIdentifier(parsed.column.name)} ${parsed.column.type});`);
+    return [`created table ${parsed.table}`];
+  }
+  const existing = new Set(getUserDbColumnNames(parsed.table).map(column => column.toLowerCase()));
+  if (existing.has(parsed.column.name.toLowerCase())) return [];
+  userDb.run(`ALTER TABLE ${quoteSQLIdentifier(parsed.table)} ADD COLUMN ${quoteSQLIdentifier(parsed.column.name)} ${parsed.column.type};`);
+  return [`added column ${parsed.table}.${parsed.column.name}`];
+}
+
+function normalizeUploadStatementFallback(statement) {
+  return String(statement || '')
+    .replace(/\s+COLLATE\s+[\w_]+/ig, '')
+    .replace(/\s+CONSTRAINT\s+(?:"[^"]+"|\[[^\]]+\]|[A-Za-z_][\w$]*)\s+DEFAULT\s+\({0,2}[^,\n)]+\){0,2}/ig, '')
+    .replace(/\bDEFAULT\s*\(\s*DATETIME\s*\(\s*'now'\s*\)\s*\)/ig, 'DEFAULT CURRENT_TIMESTAMP')
+    .replace(/\bDEFAULT\s*\(\s*GETDATE\s*\(\s*\)\s*\)/ig, 'DEFAULT CURRENT_TIMESTAMP')
+    .replace(/\b(?:ASC|DESC)\b(?=\s*[,)])/ig, '')
+    .replace(/\s+ON\s+"PRIMARY"/ig, '')
+    .replace(/\s+TEXTIMAGE_ON\s+"PRIMARY"/ig, '')
+    .replace(/,\s*\)/g, ')');
+}
+
+function rewriteInsertWithExplicitColumns(statement) {
+  const source = String(statement || '').trim();
+  const match = source.match(/^INSERT\s+(OR\s+\w+\s+)?INTO\s+((?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)(?:\s*\.\s*(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*))?)\s+VALUES\s*([\s\S]+)$/i);
+  if (!match) return null;
+  const target = {
+    table: finalTableNameFromRef(match[2]),
+    valueCount: countInsertValues(source)
+  };
+  if (!target.table || !target.valueCount) return null;
+  const existingColumns = getUserDbColumnNames(target.table);
+  const columns = [...existingColumns];
+  while (columns.length < target.valueCount) {
+    const name = `col_${columns.length + 1}`;
+    userDb.run(`ALTER TABLE ${quoteSQLIdentifier(target.table)} ADD COLUMN ${quoteSQLIdentifier(name)} TEXT;`);
+    columns.push(name);
+  }
+  return `INSERT ${match[1] || ''}INTO ${quoteSQLIdentifier(target.table)} (${columns.slice(0, target.valueCount).map(quoteSQLIdentifier).join(', ')}) VALUES ${match[3]}`;
+}
+
+function prepareSQLStatementForSQLite(statement, fallbackDialect = 'sqlite') {
+  const detected = detectSQLDialect(statement, 'auto');
+  const dialect = detected.confidence === 'low' ? fallbackDialect : detected.dialect;
+  return prepareSQLScriptForSQLite(statement, dialect).sql;
+}
+
+function repairAndRunUploadStatement(statement, classification, fallbackDialect) {
+  const attempts = [];
+  const prepared = prepareSQLStatementForSQLite(statement, fallbackDialect);
+  if (prepared && prepared !== statement) attempts.push(prepared);
+  const fallback = normalizeUploadStatementFallback(prepared || statement);
+  if (fallback && fallback !== statement && fallback !== prepared) attempts.push(fallback);
+
+  for (const attempt of attempts) {
+    try {
+      userDb.run(attempt);
+      return { ok: true, repaired: true, statement: attempt, changes: ['rewrote unsupported dialect syntax'] };
+    } catch {}
+  }
+
+  if (classification.kind === 'schema' && /^CREATE\s+TABLE\b/i.test(stripSQLCommentsForCheck(statement))) {
+    try {
+      const changes = ensureCreateTableShape(statement);
+      if (changes) return { ok: true, repaired: true, statement, changes };
+    } catch {}
+  }
+
+  if (/^ALTER\s+TABLE\b/i.test(stripSQLCommentsForCheck(statement))) {
+    try {
+      const changes = ensureAlterTableAddColumn(statement);
+      if (changes) return { ok: true, repaired: true, statement, changes: changes.length ? changes : ['column already exists'] };
+    } catch {}
+  }
+
+  if (classification.kind === 'data') {
+    try {
+      ensureInsertTargetShape(statement);
+      const rewritten = rewriteInsertWithExplicitColumns(statement);
+      if (rewritten) {
+        userDb.run(rewritten);
+        return { ok: true, repaired: true, statement: rewritten, changes: ['rewrote INSERT with explicit columns'] };
+      }
+    } catch {}
+  }
+
+  return { ok: false };
+}
+
 function tableExistsInUserDb(tableName) {
   if (!userDb) return false;
   const safeName = String(tableName || '').replace(/'/g, "''").toLowerCase();
@@ -840,7 +1095,13 @@ function ensureInsertTargetShape(statement) {
   let columns = target.columns;
   if (!columns.length) {
     const count = countInsertValues(statement);
-    columns = Array.from({ length: count }, (_, index) => `col_${index + 1}`);
+    if (tableExistsInUserDb(target.table)) {
+      const existingColumns = getUserDbColumnNames(target.table);
+      if (existingColumns.length >= count) return null;
+      columns = Array.from({ length: count - existingColumns.length }, (_, index) => `col_${existingColumns.length + index + 1}`);
+    } else {
+      columns = Array.from({ length: count }, (_, index) => `col_${index + 1}`);
+    }
   }
   if (!columns.length) return null;
 
@@ -869,6 +1130,8 @@ function executeUserDataSQLScript(sql, options = {}) {
   const statements = splitSQLStatements(normalized.sql);
   const metadata = [];
   const failed = [];
+  const repaired = [];
+  const ignored = [];
   const shapeFixes = [];
   let executed = 0;
   let dataStatements = 0;
@@ -898,6 +1161,32 @@ function executeUserDataSQLScript(sql, options = {}) {
         userDb.run(cleaned);
         executed += 1;
       } catch (error) {
+        const recovery = repairAndRunUploadStatement(cleaned, classification, detection.dialect);
+        if (recovery.ok) {
+          executed += 1;
+          repaired.push({
+            index: index + 1,
+            kind: classification.kind,
+            error: error.message,
+            changes: recovery.changes || [],
+            statement: (recovery.statement || cleaned).slice(0, 180)
+          });
+          (recovery.changes || []).forEach(change => {
+            if (/^(created table|rebuilt table|added column|rewrote INSERT)/i.test(change)) {
+              shapeFixes.push({ index: index + 1, change });
+            }
+          });
+          return;
+        }
+        if (classification.kind !== 'data') {
+          ignored.push({
+            index: index + 1,
+            kind: classification.kind,
+            error: error.message,
+            statement: cleaned.slice(0, 180)
+          });
+          return;
+        }
         failed.push({
           index: index + 1,
           kind: classification.kind,
@@ -928,8 +1217,12 @@ function executeUserDataSQLScript(sql, options = {}) {
           data: dataStatements,
           metadata: metadata.length,
           failed: failed.length,
+          repaired: repaired.length,
+          ignored: ignored.length,
           shapeFixes: shapeFixes.length,
           failedSamples: failed.slice(0, 3),
+          repairedSamples: repaired.slice(0, 3),
+          ignoredSamples: ignored.slice(0, 3),
           metadataSamples: metadata.slice(0, 3)
         }
       }
@@ -973,16 +1266,20 @@ function executeUserDataSQLScript(sql, options = {}) {
       importStats: {
         statements: statements.length,
         executed,
-        schema: schemaStatements,
-        data: dataStatements,
-        metadata: metadata.length,
-        failed: failed.length,
-        shapeFixes: shapeFixes.length,
-        copyRows: (normalized.copyBlocks || []).reduce((sum, block) => sum + block.rows, 0),
-        failedSamples: failed.slice(0, 3),
-        metadataSamples: metadata.slice(0, 3),
-        shapeFixSamples: shapeFixes.slice(0, 3)
-      }
+          schema: schemaStatements,
+          data: dataStatements,
+          metadata: metadata.length,
+          failed: failed.length,
+          repaired: repaired.length,
+          ignored: ignored.length,
+          shapeFixes: shapeFixes.length,
+          copyRows: (normalized.copyBlocks || []).reduce((sum, block) => sum + block.rows, 0),
+          failedSamples: failed.slice(0, 3),
+          repairedSamples: repaired.slice(0, 3),
+          ignoredSamples: ignored.slice(0, 3),
+          metadataSamples: metadata.slice(0, 3),
+          shapeFixSamples: shapeFixes.slice(0, 3)
+        }
     }
   };
 }
